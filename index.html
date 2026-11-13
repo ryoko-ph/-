@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>バイク部品 価格比較</title>
+<meta name="theme-color" content="#172820">
+<meta name="description" content="Webikeとモノタロウのバイク部品価格を比較するアプリ">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="./icons/icon-192.png">
+<link rel="apple-touch-icon" href="./icons/icon-192.png">
+<style>
+:root{font-family:system-ui,-apple-system,"Noto Sans JP",sans-serif;color:#202b26;background:#f2f6f3}
+*{box-sizing:border-box}
+body{margin:0;max-width:900px;margin-inline:auto;padding:0 16px 28px}
+header{background:#172820;color:#fff;margin:0 -16px 24px;padding:20px 22px 18px}
+h1{font-size:1.35rem;margin:0 0 8px}
+header p{margin:0;color:#d0d9d3;font-size:1rem}
+.panel{background:#fff;border:1px solid #d9e1dc;border-radius:24px;padding:22px;margin:18px 0;box-shadow:0 2px 12px #183b2810}
+.panel-title{display:flex;justify-content:space-between;align-items:center;font-size:1.25rem;font-weight:750;margin:0 0 18px}
+textarea,input,button{font:inherit}
+textarea{width:100%;min-height:150px;padding:16px;border:1px solid #cbd4ce;border-radius:18px;font-size:1rem;line-height:1.8}
+button{border:1px solid #dce3de;border-radius:17px;padding:14px 12px;cursor:pointer;background:#edf2ee;color:#2b3931;font-weight:650}
+button:active{transform:scale(.99)}
+.primary{background:#177b43;color:#fff;border-color:#177b43;width:100%;margin:16px 0 8px;padding:17px}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
+.actions>*{flex:1;min-width:0}
+.small{font-size:.9rem;color:#738078;line-height:1.7}
+.hint{margin:12px 0 18px}
+.item{border:1px solid #d9e1dc;border-radius:24px;padding:20px 18px;margin:12px 0;background:#fff}
+.partrow{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:18px}
+.part{font-weight:750;font-size:1.15rem;overflow-wrap:anywhere}
+.delete{background:transparent;border:0;color:#9aa39e;padding:4px;font-weight:600;flex:0 0 auto}
+.searchbtn{padding:14px 10px}
+.question{font-weight:700;margin:20px 0 10px}
+.status{display:flex;align-items:center;justify-content:center;text-align:center;min-height:54px;padding:12px 10px;border-radius:18px;border:1px solid #dce3de;background:#f0f3f1;color:#354139;font-weight:650}
+.status.selected{background:#e7f4eb;color:#1b7b45;border:2px solid #1b7b45;padding:11px 9px}
+.price-options{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.price-options .status:last-child{grid-column:1/-1}
+.missing-options{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
+.missing{background:#fff4e9;color:#8b5c2b;min-height:70px}
+.missing.selected{border:2px solid #c18a4d;background:#fff0df;padding:11px 9px}
+.result{font-weight:700;color:#217b48;margin:16px 2px 0;line-height:1.6}
+.count{font-size:.9rem;color:#77827b;font-weight:500}
+@media(max-width:430px){body{padding-inline:14px}header{margin-inline:-14px;padding-inline:20px}.panel{padding:20px 18px}.item{padding:18px 16px}.price-options,.missing-options{gap:8px}.status{font-size:.94rem}}
+</style>
+</head>
+<body>
+<header>
+ <h1>🏍️ バイク部品 価格比較</h1>
+ <p>Webike × モノタロウ｜目視確認・ワンタップ判定</p>
+</header>
+<div class="panel">
+ <div class="panel-title">品番を入力</div>
+ <textarea id="bulk" placeholder="例：&#10;53100-KZV-J00&#10;06455-KZZ-901&#10;15410-KYJ-902"></textarea>
+ <p class="small hint">1行に1品番ずつ入力。改行・カンマ・スペース区切りに対応。</p>
+ <button class="primary" onclick="addParts()">品番を追加</button>
+ <div class="actions">
+  <button onclick="document.getElementById('bulk').value=''">入力欄をクリア</button>
+  <button onclick="clearAll()">リストを全消去</button>
+ </div>
+</div>
+<div class="panel">
+ <div class="panel-title"><span>価格比較リスト</span><span class="count" id="count">0件</span></div>
+ <div id="items"></div>
+ <div class="actions"><button class="primary" onclick="exportImage()">比較結果を画像で保存</button></div>
+ <p class="small">比較結果はこのブラウザに自動保存されます。</p>
+</div>
+<script>
+const STORE_KEY='bikePartsPriceCompare_v3';
+let parts=[];
+try{parts=JSON.parse(localStorage.getItem(STORE_KEY)||'[]').map(p=>{
+ if(!p.priceStatus && ['webike','monotaro','same'].includes(p.status))p.priceStatus=p.status;
+ if(!p.missing)p.missing={webike:p.status==='webike_none',monotaro:p.status==='monotaro_none'};
+ return p;
+})}catch(e){parts=[]}
+const priceStatuses=[
+ ['webike','Webikeが安い'],['monotaro','モノタロウが安い'],['same','同じ価格']
+];
+const circled=n=>n<=20?String.fromCharCode(0x2460+n-1):`（${n}）`;
+function save(){localStorage.setItem(STORE_KEY,JSON.stringify(parts))}
+function addParts(){
+ const raw=document.getElementById('bulk').value;
+ const arr=raw.split(/[\n\r,\s、，;；]+/).map(x=>x.trim()).filter(Boolean);
+ let added=0;
+ arr.forEach(code=>{if(!parts.some(p=>p.code.toLowerCase()===code.toLowerCase())){parts.push({code,status:''});added++}});
+ save();render();document.getElementById('bulk').value='';
+ if(!added&&arr.length)alert('入力した品番はすでにリストにあります。');
+}
+function setPriceStatus(i,s){
+ parts[i].priceStatus=parts[i].priceStatus===s?'':s;
+ save();render();
+}
+function setMissing(i,site,checked){
+ if(!parts[i].missing)parts[i].missing={webike:false,monotaro:false};
+ parts[i].missing[site]=checked;
+ save();render();
+}
+function removePart(i){parts.splice(i,1);save();render()}
+function clearAll(){if(confirm('価格比較リストをすべて削除しますか？')){parts=[];save();render()}}
+function searchUrl(site,code){
+ if(site==='webike')return 'https://www.google.com/search?q='+encodeURIComponent('site:webike.net '+code);
+ return 'https://www.monotaro.com/s/q-'+encodeURIComponent(code)+'/';
+}
+function priceLabel(s){return priceStatuses.find(x=>x[0]===s)?.[1]||'未判定'}
+function resultLabel(p){
+ const out=[priceLabel(p.priceStatus)];
+ if(p.missing?.webike)out.push('Webike見つからない');
+ if(p.missing?.monotaro)out.push('モノタロウ見つからない');
+ return out.join(' ／ ');
+}
+function render(){
+ const root=document.getElementById('items');
+ document.getElementById('count').textContent=parts.length+'件';
+ if(!parts.length){root.innerHTML='<p class="small">まだ品番がありません。</p>';return}
+ root.innerHTML=parts.map((p,i)=>`
+ <div class="item">
+  <div class="partrow"><div class="part">${esc(p.code)}</div><button class="delete" onclick="removePart(${i})">削除</button></div>
+  <div class="actions">
+   <button class="searchbtn" onclick="window.open('${searchUrl('webike',p.code)}','_blank')">Webikeで検索 ↗</button>
+   <button class="searchbtn" onclick="window.open('${searchUrl('monotaro',p.code)}','_blank')">モノタロウで検索 ↗</button>
+  </div>
+  <div class="question">どちらの税込価格が安かった？</div>
+  <div class="price-options">${priceStatuses.map(([s,label])=>`<button class="status ${(p.priceStatus||(['webike','monotaro','same'].includes(p.status)?p.status:''))===s?'selected':''}" onclick="setPriceStatus(${i},'${s}')">${label}</button>`).join('')}</div>
+  <div class="missing-options">
+   <button class="status missing ${(p.missing?.webike || p.status==='webike_none')?'selected':''}" onclick="setMissing(${i},'webike',${!(p.missing?.webike || p.status==='webike_none')})">Webike見つからない</button>
+   <button class="status missing ${(p.missing?.monotaro || p.status==='monotaro_none')?'selected':''}" onclick="setMissing(${i},'monotaro',${!(p.missing?.monotaro || p.status==='monotaro_none')})">モノタロウ見つからない</button>
+  </div>
+  ${((p.priceStatus||p.status)||p.missing?.webike||p.missing?.monotaro)?`<div class="result">✓ ${esc(resultLabel(p))}</div>`:''}
+ </div>`).join('');
+}
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function download(blob,name){const a=document.createElement('a');const u=URL.createObjectURL(blob);a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),1500)}
+function exportImage(){
+ if(!parts.length){alert('出力する品番がありません');return}
+ const canvas=document.createElement('canvas'),ctx=canvas.getContext('2d');
+ const width=1000,rowH=94,pad=48,header=130;
+ canvas.width=width;canvas.height=header+parts.length*rowH+pad;
+ ctx.fillStyle='#f7f8fa';ctx.fillRect(0,0,canvas.width,canvas.height);
+ ctx.fillStyle='#202832';ctx.font='bold 34px sans-serif';ctx.fillText('バイク部品 価格比較結果',pad,60);
+ ctx.font='20px sans-serif';ctx.fillStyle='#59636f';ctx.fillText('比較リスト・判定結果',pad,98);
+ parts.forEach((p,i)=>{
+  const y=header+i*rowH;
+  ctx.fillStyle='#fff';ctx.fillRect(28,y,width-56,rowH-10);
+  ctx.fillStyle='#222';ctx.font='bold 23px sans-serif';ctx.fillText(circled(i+1),pad,y+35);
+  ctx.font='bold 22px sans-serif';ctx.fillText(p.code,pad+65,y+35);
+  ctx.font='19px sans-serif';ctx.fillStyle=(p.priceStatus||p.status)?'#176b37':'#666';ctx.fillText('結果：'+resultLabel(p),pad+65,y+67);
+ });
+ canvas.toBlob(b=>download(b,'バイク部品_価格比較結果.png'),'image/png');
+}
+render();
+</script>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./service-worker.js').catch(err => console.log('SW registration failed:', err));
+  });
+}
+</script>
+</body>
+</html>
